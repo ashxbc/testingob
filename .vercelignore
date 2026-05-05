@@ -1,0 +1,10 @@
+target/
+common/
+ingestor/
+analyzer/
+api/
+deploy/
+scripts/
+Cargo.toml
+Cargo.lock
+config.toml
