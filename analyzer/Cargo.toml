@@ -15,3 +15,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
+ahash = { workspace = true }
