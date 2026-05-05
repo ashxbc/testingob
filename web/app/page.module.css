@@ -315,7 +315,125 @@
   gap: 6px;
 }
 
+.progressBar {
+  height: 6px;
+  background: var(--hairline);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 400ms ease;
+}
+.upBg {
+  background: var(--up);
+}
+.downBg {
+  background: var(--down);
+}
+.progressLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 6px;
+  margin-bottom: 12px;
+}
+
+.triggerBox {
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin: 6px 0 10px;
+}
+.triggerText {
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 2px;
+  letter-spacing: -0.005em;
+}
+
+.killBox {
+  font-size: 12px;
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 14px;
+}
+.check {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.checkMark {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+.checkPass {
+  color: var(--fg);
+}
+.checkPass .checkMark {
+  color: var(--up);
+}
+.checkFail {
+  color: var(--fg-muted);
+}
+.checkFail .checkMark {
+  color: var(--fg-subtle);
+}
+
+.watchList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.watchItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.watchDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--fg-subtle);
+}
+
+.lastThesisBox {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: var(--radius-md);
+}
+.lastThesisText {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
 @media (max-width: 480px) {
+  .checklist {
+    grid-template-columns: 1fr;
+  }
   .price {
     font-size: 36px;
   }

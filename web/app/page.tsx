@@ -2,12 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import styles from './page.module.css';
-import { Prediction, BookSnapshot, Wall, VacuumEvent } from '@/lib/types';
+import {
+  BookSnapshot,
+  PredictPayload,
+  Thesis,
+  VacuumEvent,
+  Wall,
+  WatchState,
+} from '@/lib/types';
 import { fmtUSD, fmtCompact, fmtBps, fmtTimeAgo } from '@/lib/format';
 
 export default function Home() {
   const [book, setBook] = useState<BookSnapshot | null>(null);
-  const [predict, setPredict] = useState<Prediction | null>(null);
+  const [predict, setPredict] = useState<PredictPayload | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
   const [vacuums, setVacuums] = useState<VacuumEvent[]>([]);
   const [connected, setConnected] = useState(false);
@@ -58,6 +65,9 @@ export default function Home() {
   const bidWalls = sortedWalls.filter((w) => w.side === 'bid').slice(0, 5);
   const askWalls = sortedWalls.filter((w) => w.side === 'ask').slice(0, 5);
 
+  const isThesis = predict && predict.kind === 'thesis';
+  const isWatching = predict && predict.kind === 'watching';
+
   return (
     <main className={styles.main}>
       <header className={styles.header}>
@@ -87,71 +97,15 @@ export default function Home() {
         </div>
       </section>
 
-      <section className={styles.predictCard}>
-        <div className={styles.cardHead}>
-          <div className={styles.cardTitle}>15-minute outlook</div>
-          {predict && (
-            <div
-              className={`${styles.confBadge} ${
-                predict.direction > 0
-                  ? styles.up
-                  : predict.direction < 0
-                  ? styles.down
-                  : styles.neutral
-              }`}
-            >
-              {predict.label}
-            </div>
-          )}
-        </div>
-        {predict ? (
-          <>
-            <div className={styles.targetRow}>
-              <div>
-                <div className={styles.subLabel}>Target</div>
-                <div
-                  className={`${styles.targetPrice} tnum ${
-                    predict.direction > 0
-                      ? styles.up
-                      : predict.direction < 0
-                      ? styles.down
-                      : ''
-                  }`}
-                >
-                  {fmtUSD(predict.target_price)}
-                </div>
-                <div className={styles.subValue}>
-                  {predict.target_bps >= 0 ? '+' : ''}
-                  {predict.target_bps.toFixed(1)} bps
-                </div>
-              </div>
-              <div className={styles.confRing}>
-                <ConfidenceRing value={predict.confidence} />
-              </div>
-            </div>
-
-            <div className={styles.featureGrid}>
-              <Feature label="OFI 5m" value={predict.features.ofi_5m} />
-              <Feature
-                label="CVD slope"
-                value={predict.features.cvd_slope_5m}
-                unit="BTC/m"
-                precision={2}
-              />
-              <Feature
-                label="Vacuum bias"
-                value={predict.features.vacuum_imbalance_5m}
-              />
-              <Feature
-                label="Wall pressure"
-                value={predict.features.wall_pressure}
-              />
-            </div>
-          </>
-        ) : (
+      {isThesis ? (
+        <ThesisCard t={predict as Thesis & { kind: 'thesis' }} />
+      ) : isWatching ? (
+        <WatchingCard w={predict as WatchState & { kind: 'watching' }} />
+      ) : (
+        <section className={styles.predictCard}>
           <div className={styles.empty}>Awaiting data…</div>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className={styles.wallsCard}>
         <div className={styles.cardHead}>
@@ -200,13 +154,23 @@ export default function Home() {
                   <div className={styles.feedTop}>
                     <span className="tnum">{fmtUSD(v.price)}</span>
                     <span className={styles.feedTag}>
-                      {v.side === 'ask' ? 'ask pulled · bullish' : 'bid pulled · bearish'}
+                      {v.side === 'ask'
+                        ? 'ask pulled · bullish'
+                        : 'bid pulled · bearish'}
                     </span>
                   </div>
                   <div className={styles.feedBot}>
-                    <span className="tnum">{fmtCompact(v.notional_pulled)}</span>
+                    <span className="tnum">
+                      {fmtCompact(v.notional_pulled)}
+                    </span>
                     <span className={styles.sep}>·</span>
                     <span>{v.reason}</span>
+                    {v.defense_count > 0 && (
+                      <>
+                        <span className={styles.sep}>·</span>
+                        <span>defended ×{v.defense_count}</span>
+                      </>
+                    )}
                     <span className={styles.sep}>·</span>
                     <span className="tnum">{fmtTimeAgo(v.ts)}</span>
                   </div>
@@ -226,32 +190,135 @@ export default function Home() {
   );
 }
 
-function Feature({
-  label,
-  value,
-  unit,
-  precision = 2,
-}: {
-  label: string;
-  value: number;
-  unit?: string;
-  precision?: number;
-}) {
-  const pos = value > 0;
-  const neg = value < 0;
+function ThesisCard({ t }: { t: Thesis }) {
+  const dirUp = t.direction > 0;
+  const statusLabel =
+    t.status === 'active'
+      ? 'Active'
+      : t.status === 'filled'
+      ? 'Target hit'
+      : t.status === 'invalidated'
+      ? 'Invalidated'
+      : t.status === 'expired'
+      ? 'Expired'
+      : 'Reversed';
+  const remaining = Math.max(0, t.expires_at - Date.now());
+  const remainMin = Math.floor(remaining / 60_000);
+  const remainSec = Math.floor((remaining % 60_000) / 1000);
+
   return (
-    <div className={styles.feature}>
-      <div className={styles.featureLabel}>{label}</div>
-      <div
-        className={`${styles.featureValue} tnum ${
-          pos ? styles.up : neg ? styles.down : ''
-        }`}
-      >
-        {value > 0 ? '+' : ''}
-        {value.toFixed(precision)}
-        {unit ? <span className={styles.featureUnit}> {unit}</span> : null}
+    <section className={styles.predictCard}>
+      <div className={styles.cardHead}>
+        <div className={styles.cardTitle}>15-minute thesis</div>
+        <div
+          className={`${styles.confBadge} ${dirUp ? styles.up : styles.down}`}
+        >
+          {dirUp ? '↑ Up' : '↓ Down'} · {statusLabel}
+        </div>
       </div>
-    </div>
+
+      <div className={styles.targetRow}>
+        <div>
+          <div className={styles.subLabel}>Target</div>
+          <div
+            className={`${styles.targetPrice} tnum ${
+              dirUp ? styles.up : styles.down
+            }`}
+          >
+            {fmtUSD(t.target_price)}
+          </div>
+          <div className={styles.subValue}>{t.target_reason}</div>
+        </div>
+        <div className={styles.confRing}>
+          <ConfidenceRing value={t.confidence} />
+        </div>
+      </div>
+
+      <div className={styles.progressBar}>
+        <div
+          className={`${styles.progressFill} ${
+            dirUp ? styles.upBg : styles.downBg
+          }`}
+          style={{
+            width: `${Math.max(0, Math.min(100, t.progress * 100))}%`,
+          }}
+        />
+      </div>
+      <div className={styles.progressLabels}>
+        <span className="tnum">{fmtUSD(t.mid_at_creation)}</span>
+        <span className="tnum">{fmtUSD(t.current_mid)}</span>
+        <span className="tnum">{fmtUSD(t.target_price)}</span>
+      </div>
+
+      <div className={styles.triggerBox}>
+        <div className={styles.subLabel}>Trigger</div>
+        <div className={styles.triggerText}>{t.trigger.event}</div>
+      </div>
+
+      <div className={styles.killBox}>
+        <span>
+          Stop <span className="tnum">{fmtUSD(t.stop_price)}</span>
+        </span>
+        <span className={styles.sep}>·</span>
+        <span>
+          Expires in{' '}
+          <span className="tnum">
+            {remainMin}m {remainSec.toString().padStart(2, '0')}s
+          </span>
+        </span>
+      </div>
+
+      <ul className={styles.checklist}>
+        {t.checklist.map((c, i) => (
+          <li
+            key={i}
+            className={`${styles.check} ${
+              c.passed ? styles.checkPass : styles.checkFail
+            }`}
+          >
+            <span className={styles.checkMark}>{c.passed ? '✓' : '·'}</span>
+            <span>{c.label}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function WatchingCard({ w }: { w: WatchState }) {
+  return (
+    <section className={styles.predictCard}>
+      <div className={styles.cardHead}>
+        <div className={styles.cardTitle}>15-minute thesis</div>
+        <div className={`${styles.confBadge} ${styles.neutral}`}>
+          Awaiting trigger
+        </div>
+      </div>
+
+      <div className={styles.empty} style={{ padding: '4px 0 14px' }}>
+        No high-quality wall pull has triggered a thesis. Watching:
+      </div>
+
+      <ul className={styles.watchList}>
+        {w.watching.map((line, i) => (
+          <li key={i} className={styles.watchItem}>
+            <span className={styles.watchDot} />
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+
+      {w.last_thesis && (
+        <div className={styles.lastThesisBox}>
+          <div className={styles.subLabel}>Last thesis</div>
+          <div className={styles.lastThesisText}>
+            {w.last_thesis.direction > 0 ? '↑' : '↓'} target{' '}
+            <span className="tnum">{fmtUSD(w.last_thesis.target_price)}</span>{' '}
+            — <span>{w.last_thesis.status}</span>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -259,11 +326,10 @@ function WallRow({ w }: { w: Wall }) {
   return (
     <div className={styles.wallRow}>
       <span className={`${styles.wallPrice} tnum`}>{fmtUSD(w.price)}</span>
-      <span className={`${styles.wallSize} tnum`}>
-        {fmtCompact(w.notional)}
-      </span>
+      <span className={`${styles.wallSize} tnum`}>{fmtCompact(w.notional)}</span>
       <span className={styles.wallDist}>
         {Math.abs(w.distance_bps).toFixed(0)} bps
+        {w.touches > 0 && <> · ×{w.touches}</>}
       </span>
     </div>
   );

@@ -2,10 +2,9 @@ mod features;
 mod model;
 
 use anyhow::Result;
-use chrono::Utc;
 use common::{
-    telemetry, AppConfig, BookSnapshot, Prediction, RedisBus, TradeEvent, VacuumEvent, CH_BOOK,
-    CH_PREDICT, CH_TRADE, CH_VACUUM, KEY_PREDICT,
+    telemetry, AppConfig, BookSnapshot, RedisBus, ThesisStatus, TradeEvent, VacuumEvent, Wall,
+    CH_BOOK, CH_PREDICT, CH_TRADE, CH_VACUUM, CH_WALL, KEY_HISTORY, KEY_PREDICT,
 };
 use futures_util::StreamExt;
 use parking_lot::RwLock;
@@ -13,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::features::FeatureStore;
+use crate::model::{build_payload, ThesisManager};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,8 +22,8 @@ async fn main() -> Result<()> {
 
     let bus = RedisBus::connect(&cfg.redis_url).await?;
     let store = Arc::new(RwLock::new(FeatureStore::new()));
+    let mgr = Arc::new(RwLock::new(ThesisManager::new()));
 
-    // Subscriber task — single connection multi-channel pubsub
     let store_sub = store.clone();
     let url_sub = cfg.redis_url.clone();
     tokio::spawn(async move {
@@ -35,30 +35,65 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Prediction publisher — runs every second
     let mut bus2 = bus.clone();
-    let store_pred = store.clone();
+    let mut last_archived_id: Option<String> = None;
+
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let pred_opt = {
-            let s = store_pred.read();
-            s.last_book.as_ref().map(|book| {
-                let feats = s.compute_features();
-                model::predict(book, &feats)
-            })
-        };
-        if let Some(pred) = pred_opt {
-            let _ = bus2.set_json(KEY_PREDICT, &pred).await;
-            let _ = bus2.publish(CH_PREDICT, &pred).await;
+
+        let book;
+        let walls_vec;
+        let feats;
+        let new_vacs;
+        {
+            let mut s = store.write();
+            let Some(b) = s.last_book.clone() else {
+                continue;
+            };
+            book = b;
+            walls_vec = s.walls.values().cloned().collect::<Vec<_>>();
+            feats = s.compute();
+            new_vacs = s.drain_unprocessed_vacuums();
         }
-        let _ = Utc::now();
+
+        let payload;
+        let archived_to_record;
+        {
+            let mut m = mgr.write();
+            m.tick(&book, &feats, &walls_vec, new_vacs);
+            payload = build_payload(&m, &book, &feats);
+            archived_to_record = m
+                .last_archived
+                .as_ref()
+                .filter(|t| {
+                    t.status != ThesisStatus::Active
+                        && Some(&t.id) != last_archived_id.as_ref()
+                })
+                .cloned();
+        }
+
+        if let Some(arch) = archived_to_record {
+            last_archived_id = Some(arch.id.clone());
+            let _ = bus2.lpush_capped(KEY_HISTORY, &arch, 50).await;
+            tracing::info!(
+                id = %arch.id,
+                status = ?arch.status,
+                target = arch.target_price,
+                "thesis closed"
+            );
+        }
+
+        let _ = bus2.set_json(KEY_PREDICT, &payload).await;
+        let _ = bus2.publish(CH_PREDICT, &payload).await;
     }
 }
 
 async fn subscribe_loop(url: &str, store: Arc<RwLock<FeatureStore>>) -> Result<()> {
     let client = redis::Client::open(url)?;
     let mut pubsub = client.get_async_pubsub().await?;
-    pubsub.subscribe(&[CH_BOOK, CH_TRADE, CH_VACUUM]).await?;
+    pubsub
+        .subscribe(&[CH_BOOK, CH_TRADE, CH_VACUUM, CH_WALL])
+        .await?;
     let mut msgs = pubsub.on_message();
     while let Some(msg) = msgs.next().await {
         let chan: String = msg.get_channel_name().to_string();
@@ -77,6 +112,11 @@ async fn subscribe_loop(url: &str, store: Arc<RwLock<FeatureStore>>) -> Result<(
             CH_VACUUM => {
                 if let Ok(v) = serde_json::from_str::<VacuumEvent>(&payload) {
                     store.write().on_vacuum(v);
+                }
+            }
+            CH_WALL => {
+                if let Ok(walls) = serde_json::from_str::<Vec<Wall>>(&payload) {
+                    store.write().on_walls(walls);
                 }
             }
             _ => {}

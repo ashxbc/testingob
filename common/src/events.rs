@@ -10,6 +10,7 @@ pub const KEY_STATE: &str = "lv:state";
 pub const KEY_WALLS: &str = "lv:walls";
 pub const KEY_VACUUMS: &str = "lv:vacuums";
 pub const KEY_PREDICT: &str = "lv:predict";
+pub const KEY_HISTORY: &str = "lv:thesis_history";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -47,6 +48,8 @@ pub struct Wall {
     pub distance_bps: f64,
     pub first_seen: i64,
     pub last_seen: i64,
+    #[serde(default)]
+    pub touches: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +63,10 @@ pub struct VacuumEvent {
     pub distance_bps: f64,
     pub age_ms: i64,
     pub reason: VacuumReason,
+    #[serde(default)]
+    pub wall_id: String,
+    #[serde(default)]
+    pub defense_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,27 +77,68 @@ pub enum VacuumReason {
     Mixed,
 }
 
+// ============ Thesis-based predictions ============
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Prediction {
-    pub ts: i64,
-    pub mid: f64,
-    pub direction: i8,
-    pub target_price: f64,
-    pub target_bps: f64,
-    pub confidence: f64,
-    pub horizon_seconds: i64,
-    pub features: PredictFeatures,
-    pub label: String,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PredictPayload {
+    /// Active prediction with a real thesis.
+    Thesis(Thesis),
+    /// No qualifying trigger yet — show conditions being watched.
+    Watching(WatchState),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThesisStatus {
+    Active,
+    Filled,
+    Invalidated,
+    Expired,
+    Reversed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PredictFeatures {
-    pub ofi_5m: f64,
-    pub cvd_slope_5m: f64,
-    pub vacuum_imbalance_5m: f64,
-    pub wall_pressure: f64,
-    pub atr_15m_bps: f64,
-    pub thinness_up: f64,
-    pub thinness_down: f64,
-    pub direction_score: f64,
+pub struct Thesis {
+    pub id: String,
+    pub created_ts: i64,
+    pub direction: i8,
+    pub mid_at_creation: f64,
+    pub current_mid: f64,
+    pub target_price: f64,
+    pub target_reason: String,
+    pub stop_price: f64,
+    pub expires_at: i64,
+    pub status: ThesisStatus,
+    pub trigger: TriggerInfo,
+    pub checklist: Vec<CheckItem>,
+    pub confidence: f64,
+    pub progress: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInfo {
+    pub event: String,
+    pub wall_id: String,
+    pub wall_side: Side,
+    pub wall_price: f64,
+    pub wall_notional: f64,
+    pub wall_age_s: i64,
+    pub defense_count: u32,
+    pub pull_reason: VacuumReason,
+    pub quality_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckItem {
+    pub label: String,
+    pub passed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchState {
+    pub ts: i64,
+    pub mid: f64,
+    pub watching: Vec<String>,
+    pub last_thesis: Option<Thesis>,
 }

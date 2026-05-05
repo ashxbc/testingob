@@ -1,16 +1,44 @@
+use ahash::AHashMap;
 use chrono::Utc;
-use common::{BookSnapshot, Side, TradeEvent, VacuumEvent};
+use common::{BookSnapshot, Side, TradeEvent, VacuumEvent, Wall};
 use std::collections::VecDeque;
 
-const FIVE_MIN_MS: i64 = 5 * 60 * 1000;
+const TWO_MIN_MS: i64 = 2 * 60 * 1000;
 const FIFTEEN_MIN_MS: i64 = 15 * 60 * 1000;
 
-#[derive(Default)]
+#[derive(Clone)]
+pub struct TrackedWall {
+    pub id: String,
+    pub side: Side,
+    pub price: f64,
+    pub notional: f64,
+    pub qty: f64,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub touches: u32,
+    pub distance_bps: f64,
+}
+
 pub struct FeatureStore {
     pub last_book: Option<BookSnapshot>,
     pub books: VecDeque<BookSnapshot>,
     pub trades: VecDeque<TradeEvent>,
     pub vacuums: VecDeque<VacuumEvent>,
+    pub recent_vacuums_unprocessed: VecDeque<VacuumEvent>,
+    pub walls: AHashMap<String, TrackedWall>,
+}
+
+impl Default for FeatureStore {
+    fn default() -> Self {
+        Self {
+            last_book: None,
+            books: VecDeque::new(),
+            trades: VecDeque::new(),
+            vacuums: VecDeque::new(),
+            recent_vacuums_unprocessed: VecDeque::new(),
+            walls: AHashMap::new(),
+        }
+    }
 }
 
 impl FeatureStore {
@@ -28,8 +56,33 @@ impl FeatureStore {
         self.evict();
     }
     pub fn on_vacuum(&mut self, v: VacuumEvent) {
-        self.vacuums.push_back(v);
+        self.vacuums.push_back(v.clone());
+        self.recent_vacuums_unprocessed.push_back(v);
         self.evict();
+    }
+    pub fn on_walls(&mut self, walls: Vec<Wall>) {
+        let mut next: AHashMap<String, TrackedWall> = AHashMap::new();
+        for w in walls {
+            next.insert(
+                w.id.clone(),
+                TrackedWall {
+                    id: w.id,
+                    side: w.side,
+                    price: w.price,
+                    notional: w.notional,
+                    qty: w.qty,
+                    first_seen: w.first_seen,
+                    last_seen: w.last_seen,
+                    touches: w.touches,
+                    distance_bps: w.distance_bps,
+                },
+            );
+        }
+        self.walls = next;
+    }
+
+    pub fn drain_unprocessed_vacuums(&mut self) -> Vec<VacuumEvent> {
+        self.recent_vacuums_unprocessed.drain(..).collect()
     }
 
     fn evict(&mut self) {
@@ -46,70 +99,39 @@ impl FeatureStore {
         }
     }
 
-    pub fn compute_features(&self) -> Features {
+    pub fn compute(&self) -> Features {
         let now = Utc::now().timestamp_millis();
-        let cut5 = now - FIVE_MIN_MS;
+        let cut2 = now - TWO_MIN_MS;
         let cut15 = now - FIFTEEN_MIN_MS;
 
-        // Order Flow Imbalance: change in (bid_depth - ask_depth) over 5m
+        // OFI over 2m
         let book_now = self.last_book.as_ref();
-        let book_5m_ago = self
+        let book_2m_ago = self
             .books
             .iter()
-            .find(|b| b.ts >= cut5)
+            .find(|b| b.ts >= cut2)
             .or_else(|| self.books.front());
 
-        let ofi_5m = match (book_now, book_5m_ago) {
+        let ofi_2m = match (book_now, book_2m_ago) {
             (Some(n), Some(p)) => {
                 let now_imb = n.bid_depth_1pct - n.ask_depth_1pct;
                 let prev_imb = p.bid_depth_1pct - p.ask_depth_1pct;
-                (now_imb - prev_imb)
-                    / (n.bid_depth_1pct + n.ask_depth_1pct).max(1.0)
+                let denom = (n.bid_depth_1pct + n.ask_depth_1pct).max(1.0);
+                (now_imb - prev_imb) / denom
             }
             _ => 0.0,
         };
 
-        // CVD slope: signed trade volume per minute
-        let cvd_now: f64 = self
+        // CVD (BTC) over 2m
+        let cvd_2m: f64 = self
             .trades
             .iter()
-            .filter(|t| t.ts >= cut5)
+            .filter(|t| t.ts >= cut2)
             .map(|t| if t.is_buyer_maker { -t.qty } else { t.qty })
             .sum();
-        let cvd_slope_5m = cvd_now / 5.0; // per-minute
+        let cvd_slope_2m = cvd_2m / 2.0;
 
-        // Vacuum imbalance: ask-side pulls (bullish) minus bid-side pulls (bearish), in $
-        let mut bull = 0.0;
-        let mut bear = 0.0;
-        for v in self.vacuums.iter().filter(|v| v.ts >= cut5) {
-            // Cancelled walls are signal; filled walls are noise
-            let weight = match v.reason {
-                common::VacuumReason::Cancelled => 1.0,
-                common::VacuumReason::Mixed => 0.5,
-                common::VacuumReason::Filled => 0.1,
-            };
-            // Decay by recency (newer = stronger)
-            let age = (now - v.ts) as f64 / FIVE_MIN_MS as f64;
-            let recency = (1.0 - age).max(0.0);
-            let w = weight * recency;
-            match v.side {
-                Side::Ask => bull += v.notional_pulled * w,
-                Side::Bid => bear += v.notional_pulled * w,
-            }
-        }
-        let total = (bull + bear).max(1.0);
-        let vacuum_imbalance_5m = (bull - bear) / total;
-
-        // Wall pressure: snapshot of remaining bid vs ask depth imbalance
-        let wall_pressure = match book_now {
-            Some(n) => {
-                let denom = (n.bid_depth_1pct + n.ask_depth_1pct).max(1.0);
-                (n.bid_depth_1pct - n.ask_depth_1pct) / denom
-            }
-            None => 0.0,
-        };
-
-        // ATR over 15m using book mid samples
+        // ATR over 15m
         let recent: Vec<f64> = self
             .books
             .iter()
@@ -125,20 +147,38 @@ impl FeatureStore {
             0.0
         };
 
+        // Recent same-side pulls (last 60s) — clustering signal
+        let cluster_cut = now - 60_000;
+        let mut bid_pulls = 0u32;
+        let mut ask_pulls = 0u32;
+        for v in self.vacuums.iter().rev() {
+            if v.ts < cluster_cut {
+                break;
+            }
+            if matches!(v.reason, common::VacuumReason::Filled) {
+                continue;
+            }
+            match v.side {
+                Side::Bid => bid_pulls += 1,
+                Side::Ask => ask_pulls += 1,
+            }
+        }
+
         Features {
-            ofi_5m,
-            cvd_slope_5m,
-            vacuum_imbalance_5m,
-            wall_pressure,
+            ofi_2m,
+            cvd_slope_2m,
             atr_15m_bps,
+            ask_pulls_60s: ask_pulls,
+            bid_pulls_60s: bid_pulls,
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Features {
-    pub ofi_5m: f64,
-    pub cvd_slope_5m: f64,
-    pub vacuum_imbalance_5m: f64,
-    pub wall_pressure: f64,
+    pub ofi_2m: f64,
+    pub cvd_slope_2m: f64,
     pub atr_15m_bps: f64,
+    pub ask_pulls_60s: u32,
+    pub bid_pulls_60s: u32,
 }

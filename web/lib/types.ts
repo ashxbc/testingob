@@ -19,7 +19,10 @@ export interface Wall {
   distance_bps: number;
   first_seen: number;
   last_seen: number;
+  touches: number;
 }
+
+export type VacuumReason = 'cancelled' | 'filled' | 'mixed';
 
 export interface VacuumEvent {
   ts: number;
@@ -30,28 +33,59 @@ export interface VacuumEvent {
   mid_at_pull: number;
   distance_bps: number;
   age_ms: number;
-  reason: 'cancelled' | 'filled' | 'mixed';
+  reason: VacuumReason;
+  wall_id: string;
+  defense_count: number;
 }
 
-export interface PredictFeatures {
-  ofi_5m: number;
-  cvd_slope_5m: number;
-  vacuum_imbalance_5m: number;
-  wall_pressure: number;
-  atr_15m_bps: number;
-  thinness_up: number;
-  thinness_down: number;
-  direction_score: number;
+export type ThesisStatus =
+  | 'active'
+  | 'filled'
+  | 'invalidated'
+  | 'expired'
+  | 'reversed';
+
+export interface CheckItem {
+  label: string;
+  passed: boolean;
 }
 
-export interface Prediction {
+export interface TriggerInfo {
+  event: string;
+  wall_id: string;
+  wall_side: Side;
+  wall_price: number;
+  wall_notional: number;
+  wall_age_s: number;
+  defense_count: number;
+  pull_reason: VacuumReason;
+  quality_score: number;
+}
+
+export interface Thesis {
+  id: string;
+  created_ts: number;
+  direction: number;
+  mid_at_creation: number;
+  current_mid: number;
+  target_price: number;
+  target_reason: string;
+  stop_price: number;
+  expires_at: number;
+  status: ThesisStatus;
+  trigger: TriggerInfo;
+  checklist: CheckItem[];
+  confidence: number;
+  progress: number;
+}
+
+export interface WatchState {
   ts: number;
   mid: number;
-  direction: number;
-  target_price: number;
-  target_bps: number;
-  confidence: number;
-  horizon_seconds: number;
-  features: PredictFeatures;
-  label: string;
+  watching: string[];
+  last_thesis: Thesis | null;
 }
+
+export type PredictPayload =
+  | ({ kind: 'thesis' } & Thesis)
+  | ({ kind: 'watching' } & WatchState);

@@ -7,8 +7,9 @@ use axum::{
     Json, Router,
 };
 use common::{
-    telemetry, AppConfig, BookSnapshot, Prediction, RedisBus, VacuumEvent, Wall, CH_BOOK,
-    CH_PREDICT, CH_VACUUM, CH_WALL, KEY_PREDICT, KEY_STATE, KEY_VACUUMS, KEY_WALLS,
+    telemetry, AppConfig, BookSnapshot, PredictPayload, RedisBus, Thesis, VacuumEvent, Wall,
+    CH_BOOK, CH_PREDICT, CH_VACUUM, CH_WALL, KEY_HISTORY, KEY_PREDICT, KEY_STATE, KEY_VACUUMS,
+    KEY_WALLS,
 };
 use futures_util::StreamExt;
 use redis::AsyncCommands;
@@ -44,6 +45,7 @@ async fn main() -> Result<()> {
         .route("/api/walls", get(get_walls))
         .route("/api/vacuums", get(get_vacuums))
         .route("/api/predict", get(get_predict))
+        .route("/api/history", get(get_history))
         .route("/api/stream", get(stream))
         .layer(CompressionLayer::new())
         .layer(cors)
@@ -68,7 +70,17 @@ async fn get_walls(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 }
 
 async fn get_predict(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    fetch_json::<Prediction>(&s, KEY_PREDICT).await
+    fetch_json::<PredictPayload>(&s, KEY_PREDICT).await
+}
+
+async fn get_history(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut conn = s.bus.conn.clone();
+    let raws: Vec<String> = conn.lrange(KEY_HISTORY, 0, 50).await.unwrap_or_default();
+    let parsed: Vec<Thesis> = raws
+        .into_iter()
+        .filter_map(|r| serde_json::from_str::<Thesis>(&r).ok())
+        .collect();
+    Json(parsed)
 }
 
 async fn get_vacuums(State(s): State<Arc<AppState>>) -> impl IntoResponse {
