@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["common", "ingestor", "analyzer", "api"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Liquidity Vacuum"]
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+redis = { version = "0.27", features = ["tokio-comp", "aio", "connection-manager"] }
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+url = "2"
+parking_lot = "0.12"
+dashmap = "6"
+ahash = "0.8"
+ordered-float = { version = "4", features = ["serde"] }
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+chrono = { version = "0.4", features = ["serde"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+config = "0.14"
+backoff = { version = "0.4", features = ["tokio"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

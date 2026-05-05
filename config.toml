@@ -1,0 +1,14 @@
+# Override any default by editing this file or via env: LV__SYMBOL=BTCUSDT
+redis_url = "redis://127.0.0.1:6379"
+symbol = "BTCUSDT"
+binance_ws_base = "wss://stream.binance.com:9443"
+binance_rest_base = "https://api.binance.com"
+depth_levels = 1000
+
+# A "wall" must be at least this large in USD AND this many times the median
+# order size in its 1% neighborhood. Keep both filters tight to suppress noise.
+wall_min_notional_usd = 1500000.0
+wall_relative_multiplier = 5.0
+
+vacuum_window_ms = 1500
+api_bind = "0.0.0.0:8080"

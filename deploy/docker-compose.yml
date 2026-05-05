@@ -1,0 +1,72 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  ingestor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: ingestor
+    restart: always
+    depends_on:
+      redis: { condition: service_healthy }
+    environment:
+      LV__REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+
+  analyzer:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: analyzer
+    restart: always
+    depends_on:
+      redis: { condition: service_healthy }
+    environment:
+      LV__REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: api
+    restart: always
+    depends_on:
+      redis: { condition: service_healthy }
+    environment:
+      LV__REDIS_URL: redis://redis:6379
+      LV__API_BIND: 0.0.0.0:8080
+      RUST_LOG: info
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  web:
+    build:
+      context: ../web
+      dockerfile: ../deploy/Dockerfile.web
+    restart: always
+    depends_on:
+      - api
+    environment:
+      API_URL: http://api:8080
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  redis_data:

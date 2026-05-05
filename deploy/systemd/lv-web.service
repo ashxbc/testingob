@@ -1,0 +1,23 @@
+[Unit]
+Description=Liquidity Vacuum — Web
+After=network-online.target lv-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lv
+Group=lv
+WorkingDirectory=/opt/liquidity/web
+Environment=NODE_ENV=production
+Environment=API_URL=http://127.0.0.1:8080
+Environment=PORT=3000
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

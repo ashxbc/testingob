@@ -1,0 +1,24 @@
+[Unit]
+Description=Liquidity Vacuum — Ingestor
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=lv
+Group=lv
+WorkingDirectory=/opt/liquidity
+EnvironmentFile=-/opt/liquidity/.env
+ExecStart=/opt/liquidity/bin/ingestor
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+WatchdogSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/liquidity/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+/target
+**/target
+node_modules
+.next
+.env
+.env.local
+*.log
+dist
+out
+.DS_Store

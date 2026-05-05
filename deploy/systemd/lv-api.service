@@ -1,0 +1,21 @@
+[Unit]
+Description=Liquidity Vacuum — API
+After=network-online.target redis-server.service lv-analyzer.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=lv
+Group=lv
+WorkingDirectory=/opt/liquidity
+EnvironmentFile=-/opt/liquidity/.env
+ExecStart=/opt/liquidity/bin/api
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
