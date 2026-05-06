@@ -1,7 +1,7 @@
 use chrono::Utc;
 use common::{
-    BookSnapshot, CheckItem, PredictPayload, Side, Thesis, ThesisStatus, TriggerInfo,
-    VacuumEvent, VacuumReason, WatchState,
+    BookSnapshot, CheckItem, Cluster, ClusterSnapshot, LiqSide, PredictPayload, Side, Thesis,
+    ThesisStatus, TriggerInfo, VacuumEvent, VacuumReason, WatchState,
 };
 
 use crate::features::{Features, TrackedWall};
@@ -43,6 +43,7 @@ impl ThesisManager {
         book: &BookSnapshot,
         feats: &Features,
         walls: &[TrackedWall],
+        clusters: Option<&ClusterSnapshot>,
         new_vacuums: Vec<VacuumEvent>,
     ) {
         let now = Utc::now().timestamp_millis();
@@ -89,7 +90,7 @@ impl ThesisManager {
 
         // 3. Evaluate new vacuum events as potential triggers.
         for v in new_vacuums {
-            if let Some(new_thesis) = self.evaluate_trigger(&v, book, feats, walls) {
+            if let Some(new_thesis) = self.evaluate_trigger(&v, book, feats, walls, clusters) {
                 // If a thesis is active in the OPPOSITE direction with lower quality, reverse it.
                 if let Some(active) = self.active.as_mut() {
                     if active.direction != new_thesis.direction
@@ -115,6 +116,7 @@ impl ThesisManager {
         book: &BookSnapshot,
         feats: &Features,
         walls: &[TrackedWall],
+        clusters: Option<&ClusterSnapshot>,
     ) -> Option<Thesis> {
         // Direction implied by the pull side: ask pulled => up, bid pulled => down.
         let direction: i8 = match v.side {
@@ -163,8 +165,16 @@ impl ThesisManager {
             return None;
         }
 
-        // Build target
-        let (target_price, target_reason) = find_target(walls, book.mid, direction);
+        // Cluster confirmation: is there a meaningful liquidation cluster in the direction of travel?
+        let cluster_target = find_cluster_target(clusters, book.mid, direction);
+        let c_cluster = cluster_target.is_some();
+
+        // Build target — prefer cluster target if it exists, else next wall, else round number
+        let (target_price, target_reason) = if let Some((p, r)) = cluster_target.clone() {
+            (p, r)
+        } else {
+            find_target(walls, book.mid, direction)
+        };
         if target_price <= 0.0 {
             return None;
         }
@@ -175,12 +185,18 @@ impl ThesisManager {
         let stop_price = book.mid * (1.0 - direction as f64 * stop_bps / 10_000.0);
 
         // Quality / confidence
-        let age_score = ((wall_age_s as f64 / 300.0).min(1.0)) * 0.25;
-        let size_score = ((v.notional_pulled / 5_000_000.0).min(1.0)) * 0.20;
-        let defended_score = if c_defended { 0.15 } else { 0.0 };
-        let confirm_score = (confirms as f64 / 4.0) * 0.30;
-        let cluster_score = if c_clustered { 0.10 } else { 0.0 };
-        let confidence = (age_score + size_score + defended_score + confirm_score + cluster_score)
+        let age_score = ((wall_age_s as f64 / 300.0).min(1.0)) * 0.20;
+        let size_score = ((v.notional_pulled / 5_000_000.0).min(1.0)) * 0.15;
+        let defended_score = if c_defended { 0.10 } else { 0.0 };
+        let confirm_score = (confirms as f64 / 4.0) * 0.20;
+        let cluster_pull_score = if c_clustered { 0.10 } else { 0.0 };
+        let cluster_align_score = if c_cluster { 0.25 } else { 0.0 };
+        let confidence = (age_score
+            + size_score
+            + defended_score
+            + confirm_score
+            + cluster_pull_score
+            + cluster_align_score)
             .min(0.99);
 
         let event_str = format!(
@@ -236,6 +252,10 @@ impl ThesisManager {
             CheckItem {
                 label: "Cluster of same-side pulls".into(),
                 passed: c_clustered,
+            },
+            CheckItem {
+                label: "Liquidation cluster ahead".into(),
+                passed: c_cluster,
             },
         ];
 
@@ -336,6 +356,60 @@ fn find_target(walls: &[TrackedWall], mid: f64, direction: i8) -> (f64, String) 
         ((mid / 1000.0).floor() * 1000.0) - 1000.0
     };
     (round, format!("Round number · ${:.0}", round))
+}
+
+/// Find the densest liquidation cluster in the direction of travel within ±1.5%.
+/// Returns (price, reason).
+fn find_cluster_target(
+    clusters: Option<&ClusterSnapshot>,
+    mid: f64,
+    direction: i8,
+) -> Option<(f64, String)> {
+    let snapshot = clusters?;
+    let max_dist = mid * 0.015;
+    let min_dist = mid * 0.001; // skip clusters within 10 bps (already at price)
+
+    // Required side of cluster:
+    //   direction +1 (up): we want SHORT liquidation clusters above mid (forced buys = upward fuel)
+    //   direction -1 (down): we want LONG liquidation clusters below mid (forced sells = downward fuel)
+    let want_side = match direction {
+        1 => LiqSide::Short,
+        -1 => LiqSide::Long,
+        _ => return None,
+    };
+
+    let candidates: Vec<&Cluster> = snapshot
+        .clusters
+        .iter()
+        .filter(|c| c.side == want_side)
+        .filter(|c| match direction {
+            1 => c.bucket > mid + min_dist && (c.bucket - mid) <= max_dist,
+            -1 => c.bucket < mid - min_dist && (mid - c.bucket) <= max_dist,
+            _ => false,
+        })
+        .filter(|c| c.total_notional >= 100_000.0)
+        .collect();
+
+    let best = candidates
+        .into_iter()
+        .max_by(|a, b| {
+            a.total_notional
+                .partial_cmp(&b.total_notional)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+
+    Some((
+        best.bucket,
+        format!(
+            "Liq cluster · ${:.1}M {} at ${:.0}",
+            best.total_notional / 1e6,
+            match want_side {
+                LiqSide::Short => "shorts",
+                LiqSide::Long => "longs",
+            },
+            best.bucket
+        ),
+    ))
 }
 
 pub fn build_payload(mgr: &ThesisManager, book: &BookSnapshot, feats: &Features) -> PredictPayload {

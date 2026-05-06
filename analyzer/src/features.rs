@@ -1,6 +1,6 @@
 use ahash::AHashMap;
 use chrono::Utc;
-use common::{BookSnapshot, Side, TradeEvent, VacuumEvent, Wall};
+use common::{BookSnapshot, ClusterSnapshot, Side, TradeEvent, VacuumEvent, Wall};
 use std::collections::VecDeque;
 
 const TWO_MIN_MS: i64 = 2 * 60 * 1000;
@@ -26,6 +26,7 @@ pub struct FeatureStore {
     pub vacuums: VecDeque<VacuumEvent>,
     pub recent_vacuums_unprocessed: VecDeque<VacuumEvent>,
     pub walls: AHashMap<String, TrackedWall>,
+    pub last_clusters: Option<ClusterSnapshot>,
 }
 
 impl Default for FeatureStore {
@@ -37,6 +38,7 @@ impl Default for FeatureStore {
             vacuums: VecDeque::new(),
             recent_vacuums_unprocessed: VecDeque::new(),
             walls: AHashMap::new(),
+            last_clusters: None,
         }
     }
 }
@@ -83,6 +85,10 @@ impl FeatureStore {
 
     pub fn drain_unprocessed_vacuums(&mut self) -> Vec<VacuumEvent> {
         self.recent_vacuums_unprocessed.drain(..).collect()
+    }
+
+    pub fn on_clusters(&mut self, c: ClusterSnapshot) {
+        self.last_clusters = Some(c);
     }
 
     fn evict(&mut self) {

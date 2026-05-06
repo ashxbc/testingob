@@ -9,6 +9,7 @@ COPY common ./common
 COPY ingestor ./ingestor
 COPY analyzer ./analyzer
 COPY api ./api
+COPY liquidator ./liquidator
 
 RUN cargo build --release --bin ${BIN}
 RUN cp /build/target/release/${BIN} /build/app

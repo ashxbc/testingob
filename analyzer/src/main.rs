@@ -3,8 +3,9 @@ mod model;
 
 use anyhow::Result;
 use common::{
-    telemetry, AppConfig, BookSnapshot, RedisBus, ThesisStatus, TradeEvent, VacuumEvent, Wall,
-    CH_BOOK, CH_PREDICT, CH_TRADE, CH_VACUUM, CH_WALL, KEY_HISTORY, KEY_PREDICT,
+    telemetry, AppConfig, BookSnapshot, ClusterSnapshot, RedisBus, ThesisStatus, TradeEvent,
+    VacuumEvent, Wall, CH_BOOK, CH_CLUSTER, CH_PREDICT, CH_TRADE, CH_VACUUM, CH_WALL, KEY_HISTORY,
+    KEY_PREDICT,
 };
 use futures_util::StreamExt;
 use parking_lot::RwLock;
@@ -45,6 +46,7 @@ async fn main() -> Result<()> {
         let walls_vec;
         let feats;
         let new_vacs;
+        let clusters;
         {
             let mut s = store.write();
             let Some(b) = s.last_book.clone() else {
@@ -54,13 +56,14 @@ async fn main() -> Result<()> {
             walls_vec = s.walls.values().cloned().collect::<Vec<_>>();
             feats = s.compute();
             new_vacs = s.drain_unprocessed_vacuums();
+            clusters = s.last_clusters.clone();
         }
 
         let payload;
         let archived_to_record;
         {
             let mut m = mgr.write();
-            m.tick(&book, &feats, &walls_vec, new_vacs);
+            m.tick(&book, &feats, &walls_vec, clusters.as_ref(), new_vacs);
             payload = build_payload(&m, &book, &feats);
             archived_to_record = m
                 .last_archived
@@ -92,7 +95,7 @@ async fn subscribe_loop(url: &str, store: Arc<RwLock<FeatureStore>>) -> Result<(
     let client = redis::Client::open(url)?;
     let mut pubsub = client.get_async_pubsub().await?;
     pubsub
-        .subscribe(&[CH_BOOK, CH_TRADE, CH_VACUUM, CH_WALL])
+        .subscribe(&[CH_BOOK, CH_TRADE, CH_VACUUM, CH_WALL, CH_CLUSTER])
         .await?;
     let mut msgs = pubsub.on_message();
     while let Some(msg) = msgs.next().await {
@@ -117,6 +120,11 @@ async fn subscribe_loop(url: &str, store: Arc<RwLock<FeatureStore>>) -> Result<(
             CH_WALL => {
                 if let Ok(walls) = serde_json::from_str::<Vec<Wall>>(&payload) {
                     store.write().on_walls(walls);
+                }
+            }
+            CH_CLUSTER => {
+                if let Ok(c) = serde_json::from_str::<ClusterSnapshot>(&payload) {
+                    store.write().on_clusters(c);
                 }
             }
             _ => {}

@@ -38,6 +38,7 @@ cargo build --release
 install -m 755 target/release/ingestor "$INSTALL_DIR/bin/"
 install -m 755 target/release/analyzer "$INSTALL_DIR/bin/"
 install -m 755 target/release/api "$INSTALL_DIR/bin/"
+install -m 755 target/release/liquidator "$INSTALL_DIR/bin/"
 install -m 644 config.toml "$INSTALL_DIR/"
 
 cd web
@@ -53,7 +54,7 @@ chown -R lv:lv "$INSTALL_DIR"
 # systemd
 cp "$REPO_DIR"/deploy/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now redis-server lv-ingestor lv-analyzer lv-api lv-web
+systemctl enable --now redis-server lv-ingestor lv-liquidator lv-analyzer lv-api lv-web
 
 # nginx
 sed "s/your.domain.tld/$DOMAIN/g" "$REPO_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/liquidity

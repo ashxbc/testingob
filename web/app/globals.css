@@ -1,27 +1,47 @@
 :root {
   --bg: #ffffff;
   --bg-elev: #fafafa;
+  --bg-sunk: #f4f4f5;
   --fg: #050505;
-  --fg-muted: #8a8a8e;
-  --fg-subtle: #c7c7cc;
-  --hairline: rgba(0, 0, 0, 0.08);
+  --fg-muted: #6b6b70;
+  --fg-faint: #a1a1a6;
+  --fg-subtle: #d1d1d6;
+  --hairline: rgba(0, 0, 0, 0.07);
+  --hairline-strong: rgba(0, 0, 0, 0.12);
   --up: #00a854;
+  --up-soft: rgba(0, 168, 84, 0.10);
+  --up-strong: rgba(0, 168, 84, 0.20);
   --down: #d70015;
+  --down-soft: rgba(215, 0, 21, 0.10);
+  --down-strong: rgba(215, 0, 21, 0.20);
   --neutral: #8a8a8e;
-  --accent: #007aff;
-  --radius-lg: 18px;
+  --accent: #0066ff;
+  --accent-soft: rgba(0, 102, 255, 0.10);
+  --radius-lg: 20px;
   --radius-md: 12px;
   --radius-sm: 8px;
+  --radius-xs: 4px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #000000;
-    --bg-elev: #0e0e0f;
+    --bg-elev: #0c0c0d;
+    --bg-sunk: #060607;
     --fg: #f5f5f7;
-    --fg-muted: #8e8e93;
-    --fg-subtle: #48484a;
-    --hairline: rgba(255, 255, 255, 0.08);
+    --fg-muted: #98989f;
+    --fg-faint: #6b6b70;
+    --fg-subtle: #3a3a3c;
+    --hairline: rgba(255, 255, 255, 0.07);
+    --hairline-strong: rgba(255, 255, 255, 0.12);
+    --up: #30d158;
+    --up-soft: rgba(48, 209, 88, 0.10);
+    --up-strong: rgba(48, 209, 88, 0.22);
+    --down: #ff453a;
+    --down-soft: rgba(255, 69, 58, 0.10);
+    --down-strong: rgba(255, 69, 58, 0.22);
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.12);
   }
 }
 
@@ -36,11 +56,13 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter',
-    system-ui, sans-serif;
-  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+    'Inter', system-ui, sans-serif;
+  font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss01' 1;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  letter-spacing: -0.011em;
 }
 
 button {
@@ -58,4 +80,8 @@ a {
 
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--accent-soft);
 }

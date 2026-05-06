@@ -5,12 +5,16 @@ pub const CH_TRADE: &str = "lv:trade";
 pub const CH_VACUUM: &str = "lv:vacuum";
 pub const CH_WALL: &str = "lv:wall";
 pub const CH_PREDICT: &str = "lv:predict";
+pub const CH_LIQ: &str = "lv:liq";
+pub const CH_CLUSTER: &str = "lv:cluster";
 
 pub const KEY_STATE: &str = "lv:state";
 pub const KEY_WALLS: &str = "lv:walls";
 pub const KEY_VACUUMS: &str = "lv:vacuums";
 pub const KEY_PREDICT: &str = "lv:predict";
 pub const KEY_HISTORY: &str = "lv:thesis_history";
+pub const KEY_CLUSTERS: &str = "lv:clusters";
+pub const KEY_LIQ_RECENT: &str = "lv:liq_recent";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -133,6 +137,50 @@ pub struct TriggerInfo {
 pub struct CheckItem {
     pub label: String,
     pub passed: bool,
+}
+
+// ============ Liquidations ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Liquidation {
+    pub ts: i64,
+    pub exchange: String,
+    /// Side of the liquidated position. Long liq = forced sell; Short liq = forced buy.
+    pub side: LiqSide,
+    pub price: f64,
+    pub qty: f64,
+    pub notional: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum LiqSide {
+    Long,
+    Short,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Cluster {
+    pub bucket: f64,
+    pub long_notional: f64,
+    pub short_notional: f64,
+    pub total_notional: f64,
+    pub event_count: u32,
+    pub last_event_ts: i64,
+    pub exchanges: Vec<String>,
+    pub strength: f64,
+    pub distance_bps: f64,
+    pub side: LiqSide,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterSnapshot {
+    pub ts: i64,
+    pub mid: f64,
+    pub bucket_size: f64,
+    pub clusters: Vec<Cluster>,
+    pub long_total: f64,
+    pub short_total: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

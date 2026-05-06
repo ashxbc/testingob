@@ -26,6 +26,19 @@ services:
       LV__REDIS_URL: redis://redis:6379
       RUST_LOG: info
 
+  liquidator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: liquidator
+    restart: always
+    depends_on:
+      redis: { condition: service_healthy }
+    environment:
+      LV__REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+
   analyzer:
     build:
       context: ..

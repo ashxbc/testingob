@@ -89,3 +89,36 @@ export interface WatchState {
 export type PredictPayload =
   | ({ kind: 'thesis' } & Thesis)
   | ({ kind: 'watching' } & WatchState);
+
+export type LiqSide = 'long' | 'short';
+
+export interface Liquidation {
+  ts: number;
+  exchange: string;
+  side: LiqSide;
+  price: number;
+  qty: number;
+  notional: number;
+}
+
+export interface Cluster {
+  bucket: number;
+  long_notional: number;
+  short_notional: number;
+  total_notional: number;
+  event_count: number;
+  last_event_ts: number;
+  exchanges: string[];
+  strength: number;
+  distance_bps: number;
+  side: LiqSide;
+}
+
+export interface ClusterSnapshot {
+  ts: number;
+  mid: number;
+  bucket_size: number;
+  clusters: Cluster[];
+  long_total: number;
+  short_total: number;
+}
