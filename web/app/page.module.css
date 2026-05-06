@@ -322,15 +322,31 @@
 }
 
 .ghostRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  animation: ghostFade 4.5s ease forwards;
+  pointer-events: none;
+}
+.ghostTop {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  animation: ghostFade 3.5s ease forwards;
-  pointer-events: none;
+}
+.ghostTitle {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ghostDetail {
+  font-size: 11px;
+  color: var(--fg-muted);
+  letter-spacing: -0.005em;
 }
 .ghostBull {
   background: rgba(0, 168, 84, 0.10);

@@ -426,30 +426,38 @@ function WallRow({ w }: { w: Wall }) {
 function GhostRow({ g }: { g: GhostWall }) {
   // Authoritative classification from the ingestor (cancelled/filled/mixed/reduced).
   let toneClass = styles.ghostNeutral;
-  let label = 'unknown';
+  let title = 'unknown';
+  let detail = '';
 
   if (g.reason === 'cancelled') {
     toneClass = g.side === 'ask' ? styles.ghostBull : styles.ghostBear;
-    label =
+    title = 'Pulled';
+    detail =
       g.defense_count > 0
-        ? `cancelled · defended ×${g.defense_count}`
-        : 'cancelled';
+        ? `owner cancelled · defended ×${g.defense_count} before`
+        : 'owner cancelled — no trades hit it';
   } else if (g.reason === 'mixed') {
     toneClass = g.side === 'ask' ? styles.ghostBull : styles.ghostBear;
-    label = 'mostly cancelled';
+    title = 'Mostly pulled';
+    detail = 'partially cancelled, partially traded';
   } else if (g.reason === 'filled') {
     toneClass = styles.ghostNeutral;
-    label = 'filled';
+    title = 'Filled';
+    detail = 'traded through — buyers/sellers ate it';
   } else if (g.reason === 'reduced') {
     toneClass = styles.ghostReduced;
-    label = 'size reduced';
+    title = 'Faded';
+    detail = 'slowly trimmed below tracking threshold';
   }
 
   return (
     <div className={`${styles.ghostRow} ${toneClass}`}>
-      <span className={`${styles.wallPrice} tnum`}>{fmtUSD(g.price)}</span>
-      <span className={`${styles.wallSize} tnum`}>{fmtCompact(g.notional)}</span>
-      <span className={styles.ghostLabel}>{label}</span>
+      <div className={styles.ghostTop}>
+        <span className={`${styles.wallPrice} tnum`}>{fmtUSD(g.price)}</span>
+        <span className={`${styles.wallSize} tnum`}>{fmtCompact(g.notional)}</span>
+        <span className={styles.ghostTitle}>{title}</span>
+      </div>
+      <div className={styles.ghostDetail}>{detail}</div>
     </div>
   );
 }
