@@ -147,7 +147,9 @@ impl FeatureStore {
             0.0
         };
 
-        // Recent same-side pulls (last 60s) — clustering signal
+        // Recent same-side pulls (last 60s) — clustering signal.
+        // Only count meaningful cancellations (≥ $500k pulled), and exclude fills.
+        // Without this filter, gradual wall trims would inflate the cluster count.
         let cluster_cut = now - 60_000;
         let mut bid_pulls = 0u32;
         let mut ask_pulls = 0u32;
@@ -156,6 +158,9 @@ impl FeatureStore {
                 break;
             }
             if matches!(v.reason, common::VacuumReason::Filled) {
+                continue;
+            }
+            if v.notional_pulled < 500_000.0 {
                 continue;
             }
             match v.side {

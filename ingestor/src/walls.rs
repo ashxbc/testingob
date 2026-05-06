@@ -103,7 +103,7 @@ impl WallTracker {
                 let traded = self.traded_qty_near(w.price);
                 let pulled_qty = (w.last_qty - traded).max(0.0);
                 let reason = classify(w.last_qty, traded);
-                if pulled_qty * w.price >= self.min_notional_usd * 0.5 {
+                {
                     vacuums.push(VacuumEvent {
                         ts,
                         side: Side::Bid,
@@ -175,7 +175,7 @@ impl WallTracker {
                 let traded = self.traded_qty_near(w.price);
                 let pulled_qty = (w.last_qty - traded).max(0.0);
                 let reason = classify(w.last_qty, traded);
-                if pulled_qty * w.price >= self.min_notional_usd * 0.5 {
+                {
                     vacuums.push(VacuumEvent {
                         ts,
                         side: Side::Ask,
