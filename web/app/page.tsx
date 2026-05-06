@@ -51,6 +51,47 @@ export default function Home() {
     };
   }, []);
 
+  // Polling fallback — keeps data fresh even when SSE drops (Vercel proxy cuts long connections)
+  useEffect(() => {
+    const poll = async () => {
+      const [b, p, w, v] = await Promise.all([
+        fetch('/api/state').then((r) => r.json()).catch(() => null),
+        fetch('/api/predict').then((r) => r.json()).catch(() => null),
+        fetch('/api/walls').then((r) => r.json()).catch(() => null),
+        fetch('/api/vacuums').then((r) => r.json()).catch(() => null),
+      ]);
+      if (b) setBook(b);
+      if (p) setPredict(p);
+      if (Array.isArray(w)) setWalls(w);
+      if (Array.isArray(v)) {
+        setVacuums((prev) => {
+          const prevTs = new Set(prev.map((x) => x.ts));
+          const fresh = (v as VacuumEvent[]).filter((x) => !prevTs.has(x.ts));
+          fresh.forEach((vac) => {
+            const key = `${vac.side}-${vac.price}-${vac.ts}`;
+            const ghost: GhostWall = {
+              key, side: vac.side, price: vac.price,
+              notional: vac.notional_pulled, reason: vac.reason,
+              defense_count: vac.defense_count, ts: vac.ts,
+            };
+            setGhosts((prev) => [ghost, ...prev].slice(0, 20));
+            const t = setTimeout(() => {
+              setGhosts((prev) => prev.filter((g) => g.key !== key));
+              ghostTimer.current.delete(key);
+            }, 3500);
+            ghostTimer.current.set(key, t);
+          });
+          return [...(v as VacuumEvent[]), ...prev]
+            .filter((x, i, arr) => arr.findIndex((y) => y.ts === x.ts) === i)
+            .slice(0, 50);
+        });
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const es = new EventSource('/api/stream');
     es.onopen = () => setConnected(true);
