@@ -12,12 +12,14 @@ import {
 } from '@/lib/types';
 import { fmtUSD, fmtCompact, fmtBps, fmtTimeAgo } from '@/lib/format';
 
+type GhostReason = VacuumEvent['reason'] | 'reduced';
+
 interface GhostWall {
   key: string;
   side: 'bid' | 'ask';
   price: number;
   notional: number;
-  reason: VacuumEvent['reason'];
+  reason: GhostReason;
   defense_count: number;
   ts: number;
 }
@@ -30,6 +32,8 @@ export default function Home() {
   const [ghosts, setGhosts] = useState<GhostWall[]>([]);
   const [connected, setConnected] = useState(false);
   const ghostTimer = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const prevWalls = useRef<Wall[]>([]);
+  const recentVacuums = useRef<VacuumEvent[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,8 +55,29 @@ export default function Home() {
     };
   }, []);
 
-  // Polling fallback — keeps data fresh even when SSE drops (Vercel proxy cuts long connections)
+  // Polling — updates all state and detects wall disappearances to trigger ghost animations
   useEffect(() => {
+    const spawnGhost = (wall: Wall, vac: VacuumEvent | undefined) => {
+      const key = `ghost-${wall.id}-${Date.now()}`;
+      const ghost: GhostWall = {
+        key,
+        side: wall.side,
+        price: wall.price,
+        notional: wall.notional,
+        // Authoritative reason from the ingestor, matched by wall_id.
+        // If no matching vacuum exists, the wall shrunk below threshold — call it "reduced", not a guess.
+        reason: vac ? vac.reason : 'reduced',
+        defense_count: vac?.defense_count ?? wall.touches,
+        ts: Date.now(),
+      };
+      setGhosts((prev) => [ghost, ...prev].slice(0, 20));
+      const t = setTimeout(() => {
+        setGhosts((prev) => prev.filter((g) => g.key !== key));
+        ghostTimer.current.delete(key);
+      }, 3500);
+      ghostTimer.current.set(key, t);
+    };
+
     const poll = async () => {
       const [b, p, w, v] = await Promise.all([
         fetch('/api/state').then((r) => r.json()).catch(() => null),
@@ -62,33 +87,37 @@ export default function Home() {
       ]);
       if (b) setBook(b);
       if (p) setPredict(p);
-      if (Array.isArray(w)) setWalls(w);
+
       if (Array.isArray(v)) {
+        recentVacuums.current = (v as VacuumEvent[]).slice(0, 20);
         setVacuums((prev) => {
           const prevTs = new Set(prev.map((x) => x.ts));
           const fresh = (v as VacuumEvent[]).filter((x) => !prevTs.has(x.ts));
-          fresh.forEach((vac) => {
-            const key = `${vac.side}-${vac.price}-${vac.ts}`;
-            const ghost: GhostWall = {
-              key, side: vac.side, price: vac.price,
-              notional: vac.notional_pulled, reason: vac.reason,
-              defense_count: vac.defense_count, ts: vac.ts,
-            };
-            setGhosts((prev) => [ghost, ...prev].slice(0, 20));
-            const t = setTimeout(() => {
-              setGhosts((prev) => prev.filter((g) => g.key !== key));
-              ghostTimer.current.delete(key);
-            }, 3500);
-            ghostTimer.current.set(key, t);
-          });
-          return [...(v as VacuumEvent[]), ...prev]
-            .filter((x, i, arr) => arr.findIndex((y) => y.ts === x.ts) === i)
-            .slice(0, 50);
+          return [...fresh, ...prev].slice(0, 50);
         });
       }
+
+      if (Array.isArray(w)) {
+        const newWalls = w as Wall[];
+        const newIds = new Set(newWalls.map((x) => x.id));
+
+        // Walls that were tracked before but are gone now
+        const disappeared = prevWalls.current.filter((pw) => !newIds.has(pw.id));
+        disappeared.forEach((gone) => {
+          // Authoritative match by wall_id — no guessing.
+          const match = recentVacuums.current.find(
+            (vac) => vac.wall_id === gone.id
+          );
+          spawnGhost(gone, match);
+        });
+
+        prevWalls.current = newWalls;
+        setWalls(newWalls);
+      }
     };
+
     poll();
-    const interval = setInterval(poll, 3000);
+    const interval = setInterval(poll, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -102,30 +131,12 @@ export default function Home() {
     es.addEventListener('predict', (e) =>
       setPredict(JSON.parse((e as MessageEvent).data))
     );
-    es.addEventListener('walls', (e) =>
-      setWalls(JSON.parse((e as MessageEvent).data))
-    );
+    // Walls handled by polling effect (which runs the disappearance diff).
+    // SSE walls updates ignored to keep a single source of truth for prevWalls.
     es.addEventListener('vacuum', (e) => {
       const v: VacuumEvent = JSON.parse((e as MessageEvent).data);
       setVacuums((prev) => [v, ...prev].slice(0, 50));
-
-      const key = `${v.side}-${v.price}-${v.ts}`;
-      const ghost: GhostWall = {
-        key,
-        side: v.side,
-        price: v.price,
-        notional: v.notional_pulled,
-        reason: v.reason,
-        defense_count: v.defense_count,
-        ts: v.ts,
-      };
-      setGhosts((prev) => [ghost, ...prev].slice(0, 20));
-
-      const t = setTimeout(() => {
-        setGhosts((prev) => prev.filter((g) => g.key !== key));
-        ghostTimer.current.delete(key);
-      }, 3500);
-      ghostTimer.current.set(key, t);
+      recentVacuums.current = [v, ...recentVacuums.current].slice(0, 20);
     });
     return () => es.close();
   }, []);
@@ -413,24 +424,29 @@ function WallRow({ w }: { w: Wall }) {
 }
 
 function GhostRow({ g }: { g: GhostWall }) {
-  const isCancelled = g.reason === 'cancelled' || g.reason === 'mixed';
-  const isBullish = g.side === 'ask' && isCancelled;
-  const isBearish = g.side === 'bid' && isCancelled;
-  const label = isCancelled
-    ? g.defense_count > 0
-      ? `cancelled · defended ×${g.defense_count}`
-      : 'cancelled'
-    : 'filled';
+  // Authoritative classification from the ingestor (cancelled/filled/mixed/reduced).
+  let toneClass = styles.ghostNeutral;
+  let label = 'unknown';
+
+  if (g.reason === 'cancelled') {
+    toneClass = g.side === 'ask' ? styles.ghostBull : styles.ghostBear;
+    label =
+      g.defense_count > 0
+        ? `cancelled · defended ×${g.defense_count}`
+        : 'cancelled';
+  } else if (g.reason === 'mixed') {
+    toneClass = g.side === 'ask' ? styles.ghostBull : styles.ghostBear;
+    label = 'mostly cancelled';
+  } else if (g.reason === 'filled') {
+    toneClass = styles.ghostNeutral;
+    label = 'filled';
+  } else if (g.reason === 'reduced') {
+    toneClass = styles.ghostReduced;
+    label = 'size reduced';
+  }
+
   return (
-    <div
-      className={`${styles.ghostRow} ${
-        isBullish
-          ? styles.ghostBull
-          : isBearish
-          ? styles.ghostBear
-          : styles.ghostNeutral
-      }`}
-    >
+    <div className={`${styles.ghostRow} ${toneClass}`}>
       <span className={`${styles.wallPrice} tnum`}>{fmtUSD(g.price)}</span>
       <span className={`${styles.wallSize} tnum`}>{fmtCompact(g.notional)}</span>
       <span className={styles.ghostLabel}>{label}</span>
