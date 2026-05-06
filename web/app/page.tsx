@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from './page.module.css';
 import {
   BookSnapshot,
@@ -12,12 +12,24 @@ import {
 } from '@/lib/types';
 import { fmtUSD, fmtCompact, fmtBps, fmtTimeAgo } from '@/lib/format';
 
+interface GhostWall {
+  key: string;
+  side: 'bid' | 'ask';
+  price: number;
+  notional: number;
+  reason: VacuumEvent['reason'];
+  defense_count: number;
+  ts: number;
+}
+
 export default function Home() {
   const [book, setBook] = useState<BookSnapshot | null>(null);
   const [predict, setPredict] = useState<PredictPayload | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
   const [vacuums, setVacuums] = useState<VacuumEvent[]>([]);
+  const [ghosts, setGhosts] = useState<GhostWall[]>([]);
   const [connected, setConnected] = useState(false);
+  const ghostTimer = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -53,8 +65,26 @@ export default function Home() {
       setWalls(JSON.parse((e as MessageEvent).data))
     );
     es.addEventListener('vacuum', (e) => {
-      const v = JSON.parse((e as MessageEvent).data);
+      const v: VacuumEvent = JSON.parse((e as MessageEvent).data);
       setVacuums((prev) => [v, ...prev].slice(0, 50));
+
+      const key = `${v.side}-${v.price}-${v.ts}`;
+      const ghost: GhostWall = {
+        key,
+        side: v.side,
+        price: v.price,
+        notional: v.notional_pulled,
+        reason: v.reason,
+        defense_count: v.defense_count,
+        ts: v.ts,
+      };
+      setGhosts((prev) => [ghost, ...prev].slice(0, 20));
+
+      const t = setTimeout(() => {
+        setGhosts((prev) => prev.filter((g) => g.key !== key));
+        ghostTimer.current.delete(key);
+      }, 3500);
+      ghostTimer.current.set(key, t);
     });
     return () => es.close();
   }, []);
@@ -115,20 +145,26 @@ export default function Home() {
         <div className={styles.wallCols}>
           <div className={styles.wallCol}>
             <div className={`${styles.colHead} ${styles.up}`}>Bids</div>
-            {bidWalls.length === 0 && (
+            {bidWalls.length === 0 && ghosts.filter(g => g.side === 'bid').length === 0 && (
               <div className={styles.empty}>No significant bid walls</div>
             )}
             {bidWalls.map((w) => (
               <WallRow key={w.id} w={w} />
             ))}
+            {ghosts.filter(g => g.side === 'bid').map((g) => (
+              <GhostRow key={g.key} g={g} />
+            ))}
           </div>
           <div className={styles.wallCol}>
             <div className={`${styles.colHead} ${styles.down}`}>Asks</div>
-            {askWalls.length === 0 && (
+            {askWalls.length === 0 && ghosts.filter(g => g.side === 'ask').length === 0 && (
               <div className={styles.empty}>No significant ask walls</div>
             )}
             {askWalls.map((w) => (
               <WallRow key={w.id} w={w} />
+            ))}
+            {ghosts.filter(g => g.side === 'ask').map((g) => (
+              <GhostRow key={g.key} g={g} />
             ))}
           </div>
         </div>
@@ -331,6 +367,32 @@ function WallRow({ w }: { w: Wall }) {
         {Math.abs(w.distance_bps).toFixed(0)} bps
         {w.touches > 0 && <> · ×{w.touches}</>}
       </span>
+    </div>
+  );
+}
+
+function GhostRow({ g }: { g: GhostWall }) {
+  const isCancelled = g.reason === 'cancelled' || g.reason === 'mixed';
+  const isBullish = g.side === 'ask' && isCancelled;
+  const isBearish = g.side === 'bid' && isCancelled;
+  const label = isCancelled
+    ? g.defense_count > 0
+      ? `cancelled · defended ×${g.defense_count}`
+      : 'cancelled'
+    : 'filled';
+  return (
+    <div
+      className={`${styles.ghostRow} ${
+        isBullish
+          ? styles.ghostBull
+          : isBearish
+          ? styles.ghostBear
+          : styles.ghostNeutral
+      }`}
+    >
+      <span className={`${styles.wallPrice} tnum`}>{fmtUSD(g.price)}</span>
+      <span className={`${styles.wallSize} tnum`}>{fmtCompact(g.notional)}</span>
+      <span className={styles.ghostLabel}>{label}</span>
     </div>
   );
 }

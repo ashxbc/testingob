@@ -315,6 +315,44 @@
   gap: 6px;
 }
 
+@keyframes ghostFade {
+  0%   { opacity: 1; transform: translateY(0); }
+  60%  { opacity: 0.6; }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.ghostRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  animation: ghostFade 3.5s ease forwards;
+  pointer-events: none;
+}
+.ghostBull {
+  background: rgba(0, 168, 84, 0.10);
+  border: 1px solid rgba(0, 168, 84, 0.20);
+}
+.ghostBear {
+  background: rgba(215, 0, 21, 0.10);
+  border: 1px solid rgba(215, 0, 21, 0.20);
+}
+.ghostNeutral {
+  background: rgba(142, 142, 147, 0.10);
+  border: 1px solid var(--hairline);
+}
+.ghostLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
 .progressBar {
   height: 6px;
   background: var(--hairline);
